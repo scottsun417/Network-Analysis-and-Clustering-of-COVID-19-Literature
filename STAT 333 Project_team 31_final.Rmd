@@ -1,0 +1,231 @@
+---
+title: "STAT 333 Project"
+author: "Zhiyi Sun and JONAH CHALEM"
+date: "3/25/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## First Look at the Data and Data Clean up
+```{r}
+yelp <- read.csv("Yelp_train.csv")
+yelp_test <- read.csv("Yelp_test.csv")
+yelp_validate <- read.csv("Yelp_validate.csv")
+yelp_out <- rbind(yelp_test,yelp_validate)
+str(yelp[,1:30])
+```
+
+```{r}
+# Some basic data cleaning
+
+# convert text into actual strings
+yelp$text <- as.character(yelp$text)
+yelp_out$text <- as.character(yelp_out$text)
+yelp$categories <- as.character(yelp$categories)
+yelp_out$categories <- as.character(yelp_out$categories)
+
+# Refactorize yelp_out city after binding validation and test data
+yelp_out$city <- as.character(yelp_out$city)
+yelp_out$city <- factor(yelp_out$city)
+
+# Fix date variable into actual dates
+yelp$date <- as.Date(yelp$date)
+yelp_out$date <- as.Date(yelp_out$date)
+```
+
+```{r}
+view_vars <- c("Id","stars","nchar","nword","text")
+# The first 3 reviews
+yelp[1:3,view_vars]
+```
+
+```{r}
+# randomly view 3 one star reviews
+yelp[sample(which(yelp$stars == 1),3), view_vars]
+```
+
+```{r}
+# randomly view 3 Five star reviews
+yelp[sample(which(yelp$stars == 5),3), view_vars]
+```
+
+## Visualization
+```{r}
+par(mfrow = c(3,2))
+barplot(table(yelp$stars),main="Distribution of stars",xlab="Stars",ylab="Frequency")
+hist(yelp$nchar, breaks=10000,main="Distribution of variable nchar",xlab="Number of Characters",ylab="Frequency")
+hist(yelp$nword, breaks=10000,main="Distribution of variable nword",xlab="Number of Words",ylab="Frequency")
+hist(yelp$useful, breaks=10000,main="Distribution of variable useful",xlab="Number of votes for useful",ylab="Frequency")
+hist(yelp$funny, breaks=10000,main="Distribution of variable funny",xlab="Number of votes for funny",ylab="Frequency")
+hist(yelp$cool, breaks=10000,main="Distribution of variable cool",xlab="Number of votes for cool",ylab="Frequency")
+
+```
+
+```{r}
+par(mfrow=c(1,2))
+hist(log(yelp$nword),breaks=10000,main="Distribution of log(nword)",xlab="Log Number of Words",ylab="Frequency")
+hist(log(yelp$nchar),breaks=10000,main="Distribution of log(nchar)",xlab="Log Number of Characters",ylab="Frequency")
+```
+
+```{r}
+# Distribution of nword by star rating
+plot(range(yelp$nword), c(0,0.011), main="Distribution of nword", xlab="Number of Words", ylab="Frequency", type='n')
+colpalette <- c("red","orange","green","turquoise","blue")
+for (i in 1:5){
+  subsamples <- yelp$stars==i
+  d <- density(yelp$nword[subsamples])
+  lines(d, col=colpalette[i])
+}
+legend("topright",legend=levels(factor(yelp$stars)), fill=c("red","orange","green","turquoise","blue"))
+```
+
+```{r}
+# Distribution of nchar by star rating
+plot(range(yelp$nchar), c(0,0.0022), main="Distribution of nchar", xlab="Number of characters", ylab="Frequency", type='n')
+colpalette <- c("red","orange","green","turquoise","blue")
+for (i in 1:5){
+  subsamples <- yelp$stars==i
+  d <- density(yelp$nchar[subsamples])
+  lines(d, col=colpalette[i])
+}
+legend("topright",legend=levels(factor(yelp$stars)), fill=c("red","orange","green","turquoise","blue"))
+```
+
+```{r}
+# Relationship between sentiment score and star rating
+meanscore <- rep(0,5)
+names(meanscore) <- 1:5
+for (i in 1:5) meanscore[i] <- mean(yelp$sentiment[yelp$stars==i])
+barplot(meanscore, xlab='Stars', ylab="Average sentiment score")
+```
+
+## Exploring the Review Text
+To make them easier to understand ,these codes are not written in the most efficient way. You are welcome to explore different coding tricks, different R packages on string operations, text mining, and natual language processing.
+
+```{r}
+# generate some new predictors
+library(stringr)
+new_words <- c("service", "beautiful", "correct", "healthy")
+new_X <- matrix(0, nrow(yelp), length(new_words))
+colnames(new_X) <- new_words
+for (i in 1:length(new_words)){
+  new_X[,i] <- str_count(yelp$text, regex(new_words[i], ignore_case=T)) # ignore the upper/lower case in the text
+}
+
+# plotting the word count against star rating
+plotWordStar <- function(stars, wordcount, wordname){
+  meancount <- rep(0,5)
+  names(meancount) <- 1:5
+  for (i in 1:5)    meancount[i] <- mean(wordcount[stars==i])
+  barplot(meancount, main=wordname, xlab="Stars", ylab="Average word count")
+}
+
+par(mfrow=c(2,4))
+for (i in 1:length(new_words)){
+  plotWordStar(yelp$stars, new_X[,i], colnames(new_X)[i])
+}
+for (i in c(14,91,128,205)){
+  plotWordStar(yelp$stars, yelp[,i], colnames(yelp)[i])
+}
+```
+
+```{r}
+# testing if a specific word count is associated with star rating
+new_pvals <- rep(0,4)
+names(new_pvals) <- new_words
+for (i in 1:4){
+  ctable <- table(yelp$stars, new_X[,i])
+  new_pvals[i] <- fisher.test(ctable, simulate.p.value = T)$p.value
+}
+new_pvals
+```
+
+```{r}
+# Generate word count for the entire dictionary of words
+library(dplyr)
+library(tidytext)
+library(tm)
+library(SnowballC) 
+
+text = readLines(file("yelp.reviews.txt"))
+txt = text[text!=""]
+txt = gsub("[^a-zA-Z]"," ",txt)
+txt = tolower(txt)
+txtList = lapply(txt, strsplit," ")
+txtChar = unlist(txtList)
+txtChar = gsub("\\.|,|\\!|:|=|+|$|;|/|\\?|-|*|&|\\(","",txtChar) 
+txtChar = txtChar[txtChar!=""]
+data = as.data.frame(table(txtChar))
+colnames(data) = c("Word","freq")
+ordFreq = data[order(data$freq,decreasing=T),]
+
+ordFreq = ordFreq[c(-which(ordFreq$Word == "couldn"), -which(ordFreq$Word == "doesn"), -which(ordFreq$Word == "wouldn"), -which(ordFreq$Word == "weren"), -which(ordFreq$Word == "aren"), -which(ordFreq$Word == "hadn")),]
+
+#common words ???
+df = read.csv("common words.txt", header = TRUE) 
+Word = select(df,Word)
+antiWord = data.frame(Word,stringsAsFactors=F)
+freqword = anti_join(ordFreq,antiWord,by="Word") %>% arrange(desc(freq)) #ordFreq - antiWord
+
+freqword = freqword[1:1600,]
+head(freqword,10)
+
+yelp_text_tbl <- tbl_df(data.frame(uniqueID = 1:55342,yelp[1:55342,]))
+yelp_text_tbl_out <- tbl_df(data.frame(uniqueID = 1:36894,yelp_out[1:36894,]))
+detect = as.character.factor(freqword$Word)
+
+Empty_freqword = data.frame(uniqueID = 1:55342)
+for (i in 1:1600) {
+  Empty_freqword[detect[i]] = rep(0,55342)
+}
+
+detect = paste0("^", detect, "$")
+for (i in 1:1600){
+  yelp_text_tbl_words <- yelp_text_tbl %>% select(uniqueID,text) %>%
+    unnest_tokens(word, text) %>% 
+    filter(str_detect(word, detect[i])) %>%
+    group_by(uniqueID) %>% count(word) 
+  ReviewWordMatrix <- yelp_text_tbl_words %>% cast_dtm(uniqueID, word, n)
+  ReviewWordMatrix = as.matrix(ReviewWordMatrix)
+  Empty_freqword[row.names(ReviewWordMatrix), i+1] = ReviewWordMatrix
+}
+new_yelp = cbind(yelp, Empty_freqword[1:55342,-1])
+
+detect = as.character.factor(freqword$Word)
+Empty_freqword2 = data.frame(uniqueID = 1:36894)
+for (i in 1:1600) {
+  Empty_freqword2[detect[i]] = rep(0,36894)
+}
+
+detect = paste0("^", detect, "$")
+for (i in 1:1600){
+  yelp_text_tbl_words_out <- yelp_text_tbl_out %>% select(uniqueID,text) %>%
+    unnest_tokens(word, text) %>% 
+    filter(str_detect(word, detect[i])) %>%
+    group_by(uniqueID) %>% count(word) 
+  ReviewWordMatrix <- yelp_text_tbl_words_out %>% cast_dtm(uniqueID, word, n)
+  ReviewWordMatrix = as.matrix(ReviewWordMatrix)
+  Empty_freqword2[row.names(ReviewWordMatrix), i+1] = ReviewWordMatrix
+}
+yelp_out = cbind(yelp_out, Empty_freqword2[1:36894,-1])
+```
+
+```{r}
+as.matrix(Empty_freqword2)[1:11,2:17]
+```
+
+## The benchmark model
+```{r}
+dat <- new_yelp[,-c(1,3:4,8,12,440,894,1045)]
+
+benchmark <- lm(stars~., data=dat)
+summary(benchmark)
+```
+
+```{r}
+star_out <- data.frame(Id=yelp_out$Id, Expected=predict(benchmark, newdata = yelp_out[,-c(439,893,1044)]))
+write.csv(star_out, file='Zhiyi_submission.csv', row.names=FALSE)
+```
