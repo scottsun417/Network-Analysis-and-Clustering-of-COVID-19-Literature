@@ -164,7 +164,7 @@ ordFreq = data[order(data$freq,decreasing=T),]
 
 ordFreq = ordFreq[c(-which(ordFreq$Word == "couldn"), -which(ordFreq$Word == "doesn"), -which(ordFreq$Word == "wouldn"), -which(ordFreq$Word == "weren"), -which(ordFreq$Word == "aren"), -which(ordFreq$Word == "hadn")),]
 
-#common words ???
+#common words
 df = read.csv("common words.txt", header = TRUE) 
 Word = select(df,Word)
 antiWord = data.frame(Word,stringsAsFactors=F)
